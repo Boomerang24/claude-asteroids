@@ -149,6 +149,7 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.dead          = false;
+    this.hasBomb       = false;
   }
 
   update(dt) {
@@ -251,8 +252,53 @@ class Particle {
   }
 }
 
+// ── Bomba Nova (ítem) ─────────────────────────────────────────────────────────
+class NovaBombItem {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    const angle = rand(0, Math.PI * 2);
+    const speed = rand(10, 30);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.radius = 12;
+    this.rot = 0;
+    this.dead = false;
+  }
+
+  update(dt) {
+    this.x = wrap(this.x + this.vx * dt, W);
+    this.y = wrap(this.y + this.vy * dt, H);
+    this.rot += dt * 1.5;
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    ctx.shadowColor = '#7dfcff';
+    ctx.shadowBlur  = 12;
+    ctx.strokeStyle = '#7dfcff';
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    ctx.moveTo( 0, -this.radius);
+    ctx.lineTo( this.radius, 0);
+    ctx.lineTo( 0,  this.radius);
+    ctx.lineTo(-this.radius, 0);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle   = '#7dfcff';
+    ctx.font        = 'bold 13px monospace';
+    ctx.textAlign   = 'center';
+    ctx.fillText('N', this.x, this.y + 4);
+  }
+}
+
 // ── Estado del juego ──────────────────────────────────────────────────────────
-let ship, bullets, asteroids, particles;
+let ship, bullets, asteroids, particles, novaBombItems;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -269,24 +315,40 @@ function spawnAsteroids(count) {
   }
 }
 
+function maybeSpawnNovaBomb() {
+  if (!ship.hasBomb && Math.random() < 0.20) {
+    const SAFE_DIST = 130;
+    let x, y;
+    do {
+      x = rand(0, W);
+      y = rand(0, H);
+    } while (Math.hypot(x - W / 2, y - H / 2) < SAFE_DIST);
+    novaBombItems.push(new NovaBombItem(x, y));
+  }
+}
+
 function initGame() {
   ship          = new Ship();
   bullets   = [];
   asteroids = [];
   particles = [];
+  novaBombItems = [];
   score  = 0;
   lives  = 3;
   level  = 1;
   state  = 'playing';
   spawnAsteroids(4);
+  maybeSpawnNovaBomb();
 }
 
 function nextLevel() {
   level++;
   bullets   = [];
   particles = [];
+  novaBombItems = [];
   ship.reset();
   spawnAsteroids(3 + level);
+  maybeSpawnNovaBomb();
 }
 
 function explode(x, y, count = 8) {
@@ -319,6 +381,7 @@ function update(dt) {
     particles.forEach(p => p.update(dt));
     particles = particles.filter(p => !p.dead);
     asteroids.forEach(a => a.update(dt));
+    novaBombItems.forEach(i => i.update(dt));
     if (deadTimer <= 0) { state = 'playing'; ship.reset(); }
     return;
   }
@@ -328,10 +391,21 @@ function update(dt) {
     bullets.push(...ship.tryShoot());
   }
 
+  // Activar Bomba Nova
+  if (pressed('KeyB') && ship.hasBomb) {
+    for (const a of asteroids) {
+      score += POINTS[a.size];
+      explode(a.x, a.y, a.size * 5);
+    }
+    asteroids = [];
+    ship.hasBomb = false;
+  }
+
   ship.update(dt);
   bullets.forEach(b => b.update(dt));
   asteroids.forEach(a => a.update(dt));
   particles.forEach(p => p.update(dt));
+  novaBombItems.forEach(i => i.update(dt));
 
   bullets   = bullets.filter(b => !b.dead);
   particles = particles.filter(p => !p.dead);
@@ -361,6 +435,15 @@ function update(dt) {
       }
     }
   }
+
+  // Nave vs ítem Bomba Nova
+  for (const item of novaBombItems) {
+    if (!item.dead && dist(ship, item) < ship.radius + item.radius) {
+      item.dead = true;
+      ship.hasBomb = true;
+    }
+  }
+  novaBombItems = novaBombItems.filter(i => !i.dead);
 
   // Nivel completado
   if (asteroids.length === 0) nextLevel();
@@ -397,6 +480,11 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
+  if (ship.hasBomb) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7dfcff';
+    ctx.fillText('BOMBA NOVA: LISTA [B]', 14, H - 16);
+  }
 }
 
 function drawOverlay(title, sub) {
@@ -415,6 +503,7 @@ function draw() {
 
   particles.forEach(p => p.draw());
   asteroids.forEach(a => a.draw());
+  novaBombItems.forEach(i => i.draw());
   bullets.forEach(b => b.draw());
   ship.draw();
 
